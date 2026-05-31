@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claude Streaming Chat</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f0f0f;
+      color: #e8e8e8;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      padding: 16px 24px;
+      border-bottom: 1px solid #2a2a2a;
+      background: #161616;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    header h1 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #f0f0f0;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #cc785c;
+    }
+
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .message {
+      max-width: 760px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    .message-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 6px;
+      color: #888;
+    }
+
+    .message-bubble {
+      line-height: 1.65;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .user .message-label { color: #7aa2f7; }
+    .user .message-bubble {
+      background: #1e2a3a;
+      border: 1px solid #2a3f5a;
+      border-radius: 12px;
+      padding: 12px 16px;
+    }
+
+    .assistant .message-label { color: #cc785c; }
+    .assistant .message-bubble { padding: 0 4px; }
+
+    .cursor {
+      display: inline-block;
+      width: 2px;
+      height: 1em;
+      background: #cc785c;
+      margin-left: 2px;
+      vertical-align: text-bottom;
+      animation: blink 1s step-end infinite;
+    }
+
+    @keyframes blink { 50% { opacity: 0; } }
+
+    .error-bubble {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 12px 16px;
+      background: #2a1a1a;
+      border: 1px solid #5a2a2a;
+      border-radius: 12px;
+      color: #f28b82;
+      font-size: 14px;
+    }
+
+    #input-area {
+      border-top: 1px solid #2a2a2a;
+      padding: 16px 24px;
+      background: #161616;
+    }
+
+    #input-form {
+      max-width: 760px;
+      margin: 0 auto;
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+    }
+
+    #message-input {
+      flex: 1;
+      background: #1e1e1e;
+      border: 1px solid #333;
+      border-radius: 10px;
+      padding: 12px 16px;
+      color: #e8e8e8;
+      font-size: 15px;
+      font-family: inherit;
+      line-height: 1.5;
+      resize: none;
+      min-height: 48px;
+      max-height: 200px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    #message-input:focus { border-color: #cc785c; }
+    #message-input::placeholder { color: #555; }
+
+    #send-btn {
+      background: #cc785c;
+      border: none;
+      border-radius: 10px;
+      width: 44px;
+      height: 44px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: background 0.15s, opacity 0.15s;
+    }
+
+    #send-btn:hover:not(:disabled) { background: #b86a4e; }
+    #send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    #send-btn svg { width: 18px; height: 18px; fill: white; }
+
+    .hint {
+      max-width: 760px;
+      margin: 4px auto 0;
+      font-size: 12px;
+      color: #444;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="dot"></div>
+    <h1>Claude Chat</h1>
+  </header>
+
+  <div id="messages"></div>
+
+  <div id="input-area">
+    <form id="input-form">
+      <textarea
+        id="message-input"
+        placeholder="Message Claude..."
+        rows="1"
+        autocomplete="off"
+      ></textarea>
+      <button type="submit" id="send-btn" title="Send">
+        <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+      </button>
+    </form>
+    <p class="hint">Enter to send &nbsp;·&nbsp; Shift+Enter for new line</p>
+  </div>
+
+  <script>
+    const messagesEl = document.getElementById("messages");
+    const form = document.getElementById("input-form");
+    const input = document.getElementById("message-input");
+    const sendBtn = document.getElementById("send-btn");
+
+    let history = [];
+    let streaming = false;
+
+    // Auto-resize textarea
+    input.addEventListener("input", () => {
+      input.style.height = "auto";
+      input.style.height = Math.min(input.scrollHeight, 200) + "px";
+    });
+
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        if (!streaming) form.dispatchEvent(new Event("submit"));
+      }
+    });
+
+    function appendMessage(role, text) {
+      const wrapper = document.createElement("div");
+      wrapper.className = `message ${role}`;
+
+      const label = document.createElement("div");
+      label.className = "message-label";
+      label.textContent = role === "user" ? "You" : "Claude";
+
+      const bubble = document.createElement("div");
+      bubble.className = "message-bubble";
+      bubble.textContent = text;
+
+      wrapper.appendChild(label);
+      wrapper.appendChild(bubble);
+      messagesEl.appendChild(wrapper);
+      scrollToBottom();
+      return bubble;
+    }
+
+    function appendError(msg) {
+      const el = document.createElement("div");
+      el.className = "error-bubble";
+      el.textContent = msg;
+      messagesEl.appendChild(el);
+      scrollToBottom();
+    }
+
+    function scrollToBottom() {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const message = input.value.trim();
+      if (!message || streaming) return;
+
+      streaming = true;
+      sendBtn.disabled = true;
+      input.value = "";
+      input.style.height = "auto";
+
+      appendMessage("user", message);
+
+      const bubble = appendMessage("assistant", "");
+      const cursor = document.createElement("span");
+      cursor.className = "cursor";
+      bubble.appendChild(cursor);
+
+      let fullText = "";
+
+      try {
+        const response = await fetch("/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message, history }),
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            let event;
+            try { event = JSON.parse(line.slice(6)); } catch { continue; }
+
+            if (event.type === "text") {
+              fullText += event.delta;
+              bubble.textContent = fullText;
+              bubble.appendChild(cursor);
+              scrollToBottom();
+            } else if (event.type === "done") {
+              history.push({ role: "user", content: message });
+              history.push({ role: "assistant", content: event.assistantMessage });
+            } else if (event.type === "error") {
+              appendError(event.message);
+            }
+          }
+        }
+      } catch (err) {
+        appendError("Connection error. Is the server running?");
+      } finally {
+        cursor.remove();
+        if (!fullText) bubble.textContent = "";
+        streaming = false;
+        sendBtn.disabled = false;
+        input.focus();
+      }
+    });
+
+    input.focus();
+  </script>
+</body>
+</html>
