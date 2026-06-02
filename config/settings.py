@@ -65,6 +65,9 @@ class StrategyConfig:
     vwap_deviation_threshold: float = field(
         default_factory=lambda: _float("VWAP_DEVIATION_THRESHOLD", 0.001)
     )
+    vwap_enabled: bool = field(default_factory=lambda: _bool("VWAP_ENABLED", True))
+    sma_period: int = field(default_factory=lambda: _int("SMA_PERIOD", 20))
+    stop_size_pct: float = field(default_factory=lambda: _float("STOP_SIZE_PCT", 0.005))
 
 
 @dataclass(frozen=True)
@@ -75,6 +78,9 @@ class AppConfig:
     )
     log_dir: Path = field(
         default_factory=lambda: _PROJECT_ROOT / _str("LOG_DIR", "logs")
+    )
+    export_dir: Path = field(
+        default_factory=lambda: _PROJECT_ROOT / _str("EXPORT_DIR", "exports")
     )
     log_level: str = field(default_factory=lambda: _str("LOG_LEVEL", "INFO"))
     risk: RiskConfig = field(default_factory=RiskConfig)

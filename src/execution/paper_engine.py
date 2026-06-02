@@ -79,10 +79,11 @@ class PaperEngine:
     NOT connected to any broker.
     """
 
-    DEFAULT_STOP_PCT = 0.005  # 0.5% stop from entry
+    DEFAULT_STOP_PCT = 0.005  # fallback if not passed explicitly
 
-    def __init__(self, default_quantity: float = 1.0) -> None:
+    def __init__(self, default_quantity: float = 1.0, stop_size_pct: float = DEFAULT_STOP_PCT) -> None:
         self.default_quantity = default_quantity
+        self.stop_size_pct = stop_size_pct
         self.position: Optional[Position] = None
         self.trades: List[Trade] = []
         self._order_counter = 0
@@ -207,5 +208,5 @@ class PaperEngine:
 
     def _calc_stop(self, side: str, entry: float) -> float:
         if side == "LONG":
-            return entry * (1 - self.DEFAULT_STOP_PCT)
-        return entry * (1 + self.DEFAULT_STOP_PCT)
+            return entry * (1 - self.stop_size_pct)
+        return entry * (1 + self.stop_size_pct)

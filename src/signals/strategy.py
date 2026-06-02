@@ -4,7 +4,7 @@ Signal generation strategy.
 Indicators:
   - VWAP  (volume-weighted average price, resets each day)
   - RSI   (relative strength index)
-  - Trend filter (price above/below 20-bar SMA)
+  - Trend filter (price above/below N-bar SMA)
   - Key level placeholder  (returns None until implemented)
   - Order-flow placeholder (returns None until implemented)
 
@@ -18,7 +18,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date
 from enum import Enum
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 from src.feeds.market_data import Bar
 from config.settings import StrategyConfig
@@ -37,6 +37,7 @@ class BarAnalysis:
     bar: Bar
     vwap: float
     rsi: Optional[float]
+    sma: Optional[float]
     trend: str          # "UP", "DOWN", "NEUTRAL"
     signal: Signal
     key_level: None     # placeholder
@@ -57,7 +58,7 @@ def _calc_rsi(closes: List[float], period: int) -> Optional[float]:
     return 100.0 - (100.0 / (1.0 + rs))
 
 
-def _calc_sma(closes: List[float], period: int = 20) -> Optional[float]:
+def _calc_sma(closes: List[float], period: int) -> Optional[float]:
     if len(closes) < period:
         return None
     return sum(closes[-period:]) / period
@@ -69,14 +70,11 @@ class VWAPStrategy:
     VWAP resets at the start of each calendar day.
     """
 
-    SMA_PERIOD = 20
-
     def __init__(self, config: StrategyConfig) -> None:
         self.cfg = config
         self._cum_tp_vol: float = 0.0
         self._cum_vol: float = 0.0
         self._vwap_date: Optional[date] = None
-
         self._closes: List[float] = []
 
     def on_bar(self, bar: Bar) -> BarAnalysis:
@@ -95,8 +93,7 @@ class VWAPStrategy:
         self._closes.append(bar.close)
 
         rsi = _calc_rsi(self._closes, self.cfg.rsi_period)
-        sma = _calc_sma(self._closes, self.SMA_PERIOD)
-
+        sma = _calc_sma(self._closes, self.cfg.sma_period)
         trend = self._trend(bar.close, sma)
         signal = self._signal(bar.close, vwap, rsi, trend)
 
@@ -104,6 +101,7 @@ class VWAPStrategy:
             bar=bar,
             vwap=vwap,
             rsi=rsi,
+            sma=sma,
             trend=trend,
             signal=signal,
             key_level=None,
